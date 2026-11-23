@@ -1,1 +1,6 @@
 .DS_Store
+.mypy_cache/
+.vscode/
+__pycache__/
+
+run_output/
