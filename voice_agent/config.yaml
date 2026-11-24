@@ -1,0 +1,13 @@
+# Settings for the voice agent.
+#
+# Environment variables override these values (handy because the server's port changes with every job):
+#   LLM_BASE_URL  overrides llm.base_url
+#   LLM_MODEL     overrides llm.model
+#   LLM_API_KEY   overrides llm.api_key
+
+llm:
+  model: openai/gpt-oss-20b
+  base_url: http://127.0.0.1:8000/v1
+  api_key: EMPTY            # only checked if the vLLM server was started with --api-key
+  max_tokens: 512           # gpt-oss's thinking tokens count against this too
+  reasoning_effort: low     # low | medium | high; higher means a longer wait before the first word

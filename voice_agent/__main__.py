@@ -8,6 +8,7 @@ from voice_kit import (
     ReplaySession, read_trace, record_problems, summarize_stages,
 )
 from .asr import WhisperASR
+from .llm import GPTOssLLM
 
 TTS_SAMPLE_RATE_HZ = 16000
 
@@ -43,6 +44,8 @@ def run_session(recordings_directory: Path, output_directory: Path, limit: int =
     )
     asr = WhisperASR()
     asr.warm_up()   # 触发第一次推理的初始化开销，避免影响后续的延迟测量
+    llm = GPTOssLLM.from_config()   # 设置在 voice_agent/config.yaml；环境变量 LLM_BASE_URL 等可覆盖
+    llm.warm_up()   # 触发第一次推理的初始化开销，避免影响后续的延迟测量
     for turn in session.turns():
         received_audio = bytearray()
         turn.start(on_chunk=received_audio.extend)   # "按下按键"：shim 开始实时喂音频
@@ -56,7 +59,7 @@ def run_session(recordings_directory: Path, output_directory: Path, limit: int =
             reply_words = []    # 整个回复，只存这一份
             sent_upto = 0       # reply_words[:sent_upto] 已经送去 TTS 了
 
-            for index, word in enumerate(fake_llm("Ten minutes for the tea. Starting now.")):
+            for index, word in enumerate(llm.stream([{"role": "user", "content": transcript}])):
                 if index == 0:
                     turn.stamp(LLM_FIRST_TOKEN)
                 reply_words.append(word)
