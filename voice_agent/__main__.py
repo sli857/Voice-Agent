@@ -56,23 +56,27 @@ def run_session(recordings_directory: Path, output_directory: Path, limit: int =
             turn.stamp(ASR_FINAL)
             turn.extras["transcript"] = transcript
 
-            reply_words = []    # 整个回复，只存这一份
-            sent_upto = 0       # reply_words[:sent_upto] 已经送去 TTS 了
+            # llm.stream() 产出的是 token 片段，不是单词：片段自带前导空格（" green"），
+            # 一个词也可能被切成几片（"St" + "eep"）。所以用 "" 直接拼接，不能用 " ".join。
+            reply = ""      # 整个回复
+            pending = ""    # 还没送去 TTS 的部分
 
-            for index, word in enumerate(llm.stream([{"role": "user", "content": transcript}])):
+            for index, chunk in enumerate(llm.stream([{"role": "user", "content": transcript}])):
                 if index == 0:
                     turn.stamp(LLM_FIRST_TOKEN)
-                reply_words.append(word)
-                if word.endswith((".", "?", "!")):
-                    turn.sink.write(fake_tts(" ".join(reply_words[sent_upto:])))
-                    sent_upto = len(reply_words)
+                reply += chunk
+                pending += chunk
+                # 看累积文本的结尾，而不是单个片段：句号可能单独成片，也可能后面跟着 "**" 或空格
+                if pending.rstrip().rstrip("*\"')").endswith((".", "?", "!")):
+                    turn.sink.write(fake_tts(pending.strip()))
+                    pending = ""
 
             turn.stamp(LLM_COMPLETE)
 
-            if sent_upto < len(reply_words):     # 还有没送出去的半句
-                turn.sink.write(fake_tts(" ".join(reply_words[sent_upto:])))
+            if pending.strip():     # 还有没送出去的半句
+                turn.sink.write(fake_tts(pending.strip()))
 
-            turn.extras["reply"] = " ".join(reply_words)
+            turn.extras["reply"] = reply
 
         finally:
             turn.finish()    # 不管成功还是出错，都写一条 trace 记录
