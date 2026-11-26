@@ -12,12 +12,6 @@ from .llm import GPTOssLLM
 
 TTS_SAMPLE_RATE_HZ = 16000
 
-def fake_llm(text):
-    words = text.split()
-    for word in words:
-        time.sleep(0.03)  # 30 ms delay
-        yield word
-
 def fake_tts(sentence):
     # 生成一段音量足够大的 440 Hz 正弦波，返回 16-bit PCM 字节
     sample_rate = TTS_SAMPLE_RATE_HZ
@@ -61,7 +55,8 @@ def run_session(recordings_directory: Path, output_directory: Path, limit: int =
             reply = ""      # 整个回复
             pending = ""    # 还没送去 TTS 的部分
 
-            for index, chunk in enumerate(llm.stream([{"role": "user", "content": transcript}])):
+            # llm.chat() 带上之前所有轮的对话，并在回答结束后把这一轮存进 llm.history
+            for index, chunk in enumerate(llm.chat(transcript)):
                 if index == 0:
                     turn.stamp(LLM_FIRST_TOKEN)
                 reply += chunk
@@ -92,5 +87,5 @@ def check(trace_path: Path) -> None:
 
 if __name__ == "__main__":
     output_directory = Path("run_output")
-    run_session(Path("recordings"), output_directory, limit=None)   # None 表示跑所有录音
+    run_session(Path("recordings"), output_directory, limit=3)   # None 表示跑所有录音
     check(output_directory / "trace.jsonl")

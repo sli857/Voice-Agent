@@ -15,11 +15,15 @@ class GPTOssLLM:
     """Client for a gpt-oss model served by an already-running vLLM (OpenAI-compatible) server."""
 
     def __init__(self, base_url: str, model: str, api_key: str = "EMPTY",
-                 max_tokens: int = 512, reasoning_effort: str = "low") -> None:
+                 max_tokens: int = 512, reasoning_effort: str = "low",
+                 system_prompt: str | None = None) -> None:
         self.model = model
         # gpt-oss thinks before it answers, and those thinking tokens count against max_tokens.
         self.max_tokens = max_tokens
         self.reasoning_effort = reasoning_effort
+        self.system_prompt = system_prompt
+        # The conversation so far: user and assistant messages only (no system prompt, no reasoning).
+        self.history: list[dict] = []
         self.client = OpenAI(base_url=base_url, api_key=api_key)
 
     @classmethod
@@ -33,11 +37,36 @@ class GPTOssLLM:
         return cls(**settings)
 
     def warm_up(self) -> None:
-        """Warm up the LLM by making a dummy request."""
+        """Warm up the LLM by making a dummy request. Uses stream(), so it never enters the history."""
         list(self.stream([{"role": "user", "content": "Say hello."}]))
 
+    def chat(self, user_text: str) -> Iterator[str]:
+        """Answer one user turn with the whole conversation as context, yielding the answer chunk by chunk.
+
+        Both sides of the turn are added to the history once the answer has finished streaming. If the
+        caller stops early or the request fails, whatever part of the answer was produced is kept.
+        """
+        user_message = {"role": "user", "content": user_text}
+        reply = ""
+        try:
+            for text in self.stream([*self.history, user_message]):
+                reply += text
+                yield text
+        finally:
+            self.history.append(user_message)
+            self.history.append({"role": "assistant", "content": reply})
+
+    def reset(self) -> None:
+        """Forget the conversation, e.g. to start a new dialogue."""
+        self.history = []
+
     def stream(self, messages: list[dict]) -> Iterator[str]:
-        """Yield the answer text chunk by chunk. The model's reasoning is skipped."""
+        """Yield the answer text chunk by chunk. The model's reasoning is skipped.
+
+        `messages` holds only the conversation (user and assistant turns); the system prompt is added here.
+        """
+        if self.system_prompt:
+            messages = [{"role": "system", "content": self.system_prompt}, *messages]
         response = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
