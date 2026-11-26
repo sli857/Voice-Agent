@@ -1,5 +1,6 @@
 import array
 import math
+import os
 import time
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from voice_kit import (
 )
 from .asr import WhisperASR
 from .llm import GPTOssLLM
+from .tools import ToolBox
 
 TTS_SAMPLE_RATE_HZ = 16000
 
@@ -38,7 +40,8 @@ def run_session(recordings_directory: Path, output_directory: Path, limit: int =
     )
     asr = WhisperASR()
     asr.warm_up()   # 触发第一次推理的初始化开销，避免影响后续的延迟测量
-    llm = GPTOssLLM.from_config()   # 设置在 voice_agent/config.yaml；环境变量 LLM_BASE_URL 等可覆盖
+    tools = ToolBox()   # 这一场对话的计时器等状态，LLM 通过工具调用来读写
+    llm = GPTOssLLM.from_config(tools=tools)   # 设置在 voice_agent/config.yaml；环境变量 LLM_BASE_URL 等可覆盖
     llm.warm_up()   # 触发第一次推理的初始化开销，避免影响后续的延迟测量
     for turn in session.turns():
         received_audio = bytearray()
@@ -72,6 +75,7 @@ def run_session(recordings_directory: Path, output_directory: Path, limit: int =
                 turn.sink.write(fake_tts(pending.strip()))
 
             turn.extras["reply"] = reply
+            turn.extras["tool_calls"] = llm.last_tool_calls
 
         finally:
             turn.finish()    # 不管成功还是出错，都写一条 trace 记录
@@ -86,6 +90,9 @@ def check(trace_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    output_directory = Path("run_output")
-    run_session(Path("recordings"), output_directory, limit=3)   # None 表示跑所有录音
+    # One folder per run. sbatch passes its own in OUTPUT_DIR (it also holds the vLLM log); run by hand,
+    # the agent names one by the start time, so the newest run sorts last.
+    output_directory = Path(os.environ.get("OUTPUT_DIR")
+                            or Path("run_output") / time.strftime("%Y-%m-%d_%H-%M-%S"))
+    run_session(Path("recordings"), output_directory, limit=None)   # None 表示跑所有录音
     check(output_directory / "trace.jsonl")
